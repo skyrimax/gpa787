@@ -19,7 +19,7 @@ int main( int argc, char **argv )
    
   // Configuration du GPIO pour DEL 1 (rouge)
   bcm2835_gpio_fsel(20, BCM2835_GPIO_FSEL_OUTP);
-  // COnfiguration du GPIO pour DEL 2 (orange) (Ajouté)
+  // Configuration du GPIO pour DEL 2 (orange) (Ajouté)
   bcm2835_gpio_fsel(21, BCM2835_GPIO_FSEL_OUTP);
   // Configuration du GPIO pour bouton - poussoir 1
   bcm2835_gpio_fsel(19, BCM2835_GPIO_FSEL_INPT);
