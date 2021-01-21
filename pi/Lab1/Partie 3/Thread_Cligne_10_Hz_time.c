@@ -15,7 +15,7 @@
  #include <pthread.h>
  #include <time.h>
 
- double frequence = 10.0; // Hertz : fréquence de clignotement désirée
+ double frequence = 20.0; // Hertz : fréquence de clignotement désirée
 
  /* Fonction clignote qui sera appelée par le thread " cligne "
  *
@@ -35,11 +35,17 @@
     // Boucle infinie pour le clignotement du DEL
     while (1) {
       if (etat==0) {
+        // Allumer la DEL rouge (Déjà en place)
         bcm2835_gpio_write(20 , HIGH );
+        // Éteindre la DEL orange (Ajouté)
+        bcm2835_gpio_write(21, LOW);
         etat = 1;
       }
       else {
+        // Éteindre la DEL rouge (Déjà en place)
         bcm2835_gpio_write(20 , LOW );
+        // Allumer la DEL orange (Ajouté)
+        bcm2835_gpio_write(21, HIGH);
         etat = 0;
       }
 
@@ -74,8 +80,12 @@
 
     // Configuration du GPIO pour DEL 1 ( rouge )
     bcm2835_gpio_fsel(20 , BCM2835_GPIO_FSEL_OUTP );
+    // COnfiguration du GPIO pour DEL 2 (orange) (Ajouté)
+    bcm2835_gpio_fsel(21, BCM2835_GPIO_FSEL_OUTP);
     // Configuration du GPIO pour bouton - poussoir 1
     bcm2835_gpio_fsel(19 , BCM2835_GPIO_FSEL_INPT );
+    // Configuration du GPIO pour bouton - poussoir 2 (Ajouté)
+    bcm2835_gpio_fsel(26, BCM2835_GPIO_FSEL_INPT);
 
     // Création du thread "cligne".
     // Lien avec la fonction clignote.
@@ -83,7 +93,7 @@
     pthread_create(&cligne, NULL, &clignote, NULL );
 
     // Boucle tant que le bouton - poussoir est non enfoncé
-    while ( bcm2835_gpio_lev(19) ){
+    while (bcm2835_gpio_lev(19) || bcm2835_gpio_lev(26)){
       usleep(1000) ; // Délai de 1 ms !!!
     }
 
@@ -94,6 +104,9 @@
 
     // Éteindre le DEL rouge
     bcm2835_gpio_write(20 , LOW );
+    // Éteindre la DEL orange (Ajouté)
+    bcm2835_gpio_write(21, LOW);
+
     // Libérer le GPIO
     bcm2835_close();
     return 0;
