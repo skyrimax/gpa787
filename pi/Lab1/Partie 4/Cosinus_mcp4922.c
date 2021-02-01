@@ -41,8 +41,8 @@ double *discret_ligne(int N)
   }
 
   for(int i=0; i<N; ++i){
-    points[i]=i/(N-1.0);
-    //printf("points[%d] = %lf\n", i, points[i]);
+    points[i]=2*i/(N-1.0)-1;
+    printf("points[%d] = %lf\n", i, points[i]);
   }
 
   return points;
