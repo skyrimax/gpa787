@@ -160,7 +160,7 @@ void *signal_mcp4922(void *args)
   while (1)
   {
     //printf("i : %d\n", i);
-    voltage_mcp4922(args_s->amplitude / 2 * args_s->points_signal[i] + args_s->vRef / 2, args_s->vRef, 0, 0, 1, 0);
+    voltage_mcp4922(args_s->amplitude / 2 * args_s->points_signal[i] + args_s->vRef / 2, args_s->vRef, 0, 0, 1, 1);
 
     i = (i + 1) % args_s->nbPoints;
 
