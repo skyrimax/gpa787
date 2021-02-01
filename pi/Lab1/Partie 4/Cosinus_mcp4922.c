@@ -232,7 +232,7 @@ int main(int argc, char **argv)
   bcm2835_spi_setBitOrder(BCM2835_SPI_BIT_ORDER_MSBFIRST);
 
   // Configurer la vitesse de transmission
-  bcm2835_spi_set_speed_hz(4096);
+  bcm2835_spi_set_speed_hz(16384);
 
   // Configuration du mode SPI
   bcm2835_spi_setDataMode(BCM2835_SPI_MODE0);
