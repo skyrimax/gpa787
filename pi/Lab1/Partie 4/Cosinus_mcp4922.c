@@ -17,7 +17,7 @@
 #include <math.h>
 
 #define NB_POINTS_COS 16 // Nombre de points utilisé pour discrétiser le cosin
-#define FREQUENCE 1.0   // Hertz : fréquence du cosinus désirée
+#define FREQUENCE 16.0   // Hertz : fréquence du cosinus désirée
 #define AMPLITUDE 4.0    // Voltage crête à crête de l'onde cosinusoïdale
 #define VREF 5.0         // Voltage de référence du mcp4922
 
@@ -42,7 +42,7 @@ double *discret_ligne(int N)
 
   for(int i=0; i<N; ++i){
     points[i]=2*i/(N-1.0)-1;
-    printf("points[%d] = %lf\n", i, points[i]);
+    //printf("points[%d] = %lf\n", i, points[i]);
   }
 
   return points;
@@ -127,7 +127,11 @@ void voltage_mcp4922(double v, double Vref, uint8_t canal, uint8_t buffered, uin
     data |= 0b0001000000000000;
 
   //printf("Data : %x\n", data&0xFFF);
-  bcm2835_spi_transfern((char *)&data, 2);
+  uint8_t x[2];
+  x[0] = (data>>8)&0x0FF;
+  x[1] = data&0x0FF;
+  
+  bcm2835_spi_transfern((char *)x, 2);
 }
 
 /* Fonction clignote qui sera appelée par le thread " cligne "
@@ -218,8 +222,8 @@ int main(int argc, char **argv)
 
   //printf("spi initiated\n");
   // Calculs des points du cosinus et assignation dans la variable globale
-  //args.points_signal = discret_cosinus(args.nbPoints);
   args.points_signal = discret_cosinus(args.nbPoints);
+  //args.points_signal = discret_ligne(args.nbPoints);
 
   // S'assurer que les points sont bien assignées
   if (!args.points_signal)
