@@ -16,10 +16,8 @@
 #include <time.h>
 #include <math.h>
 
-#define FREQUENCE_AQUISITION // Hertz : fréquence d'acquisition de l'onde à l'entrée
-
 #define NB_POINTS 1 // Nombre de points utilisé pour discrétiser le cosin
-#define FREQUENCE 1000.0   // Hertz : fréquence du cosinus désirée
+#define FREQUENCE_AQUISITION  1000.0   // Hertz : fréquence d'acquisition de l'onde à l'entrée
 #define AMPLITUDE 4.0    // Voltage crête à crête de l'onde cosinusoïdale
 #define VREF 5.0         // Voltage de référence du mcp4922
 
@@ -243,7 +241,7 @@ int main(int argc, char **argv)
   // Arguments pour le thread
   struct args_signal args;
   args.amplitude = AMPLITUDE;
-  args.frequence = FREQUENCE;
+  args.frequence = FREQUENCE_AQUISITION;
   args.nbPoints = NB_POINTS;
   args.points_signal = NULL;
   args.vRef = VREF;
