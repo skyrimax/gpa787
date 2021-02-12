@@ -443,8 +443,8 @@ int main(int argc, char **argv)
   // Libérer le GPIO
   bcm2835_close();
 
-  // Libérer la mémoire utilisée pour les points du cosinus
-  //free(args.points_signal);
+  // Libérer la mémoire utilisée pour la modulation et démodulation
+  destroy_param_AM(&args);
 
   return EXIT_SUCCESS;
 }
