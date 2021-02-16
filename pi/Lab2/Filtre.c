@@ -1,0 +1,540 @@
+/*
+ * Filtre .c
+ *
+ * Ce programme fait le filtrage du signal reçu à
+ * l'entré 1 du mcp3204 et retourne le signal filtré
+ * à la sortie A du mcp4922
+ * 
+ * L’arrêt sera provoqué par un appui sur le bouton-poussoir 1.
+ * Aucun paramètre en entrée.
+ *
+ */
+
+#include <unistd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <bcm2835.h>
+#include <pthread.h>
+#include <time.h>
+#include <math.h>
+#include <string.h>
+
+// Énumération représentant la fenêtre à utiliser pour un filtre FIR
+typedef enum{
+  Rectangulaire,
+  Hanning,
+  Hamming,
+  Blackman
+} fenetre_FIR;
+
+// Énumération représentant le type de filtre
+typedef enum{
+  Passe_Bas,
+  Passe_Haut,
+  Passe_Bande,
+  Coupe_Bande,
+} type_filtre;
+
+// Définir la structure des arguments pour la fonction filtre
+typedef struct 
+{
+  // Fréquence d'échantillonnage
+  double fs;
+
+  // Voltage de référence
+  double Vref;
+
+  // Coefficients du filtre
+  size_t nb_num;
+  double *num;
+  size_t nb_denum;
+  double *denum;
+
+  // Tableaux contenant les valeurs d'entré et de sortie présentes et passées
+  double *x;
+  double *y;
+}args_filtre;
+
+// Y u no already exist?
+// Retourne la plus grande valeur entre nb1 et nb2
+double max(double nb1, double nb2)
+{
+  return (nb1 > nb2) ? nb1 : nb2;
+}
+
+/* Fonction initialisant la structure d'arguments pour un filtre
+ * 
+ * args : pointeur vers la structure d'argument à initialiser
+ * 
+ * fs : fréquence d'échantillonnage
+ * 
+ * Vref : Voltage de référence du mcp3204
+ * 
+ * nb_num : nombre de coefficient au numérateur
+ * 
+ * num : tableau de coefficient du numérateur (fera une copie)
+ * 
+ * nb_denum : nombre de coefficient au dénominateur
+ * 
+ * demum : tableau de coefficient du dénominateur (fera une copie)
+ * 
+ * Retourne s'il y a eu un problème durant l'allocation
+ */
+int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, double *num, size_t nb_denum, double *denum)
+{
+  // Indexeur pour l'initialisation de buffers
+  size_t i;
+  size_t limit = max(nb_num, nb_denum);
+
+  // Initialisation des pointeurs pour pouvoir détecter les erreurs d'allocation de mémoire
+  args->num = NULL;
+  args->denum = NULL;
+  args->x = NULL;
+  args->y = NULL;
+
+  // Allocation de la mémoire
+  args->num = (double *)malloc(nb_num * sizeof(double));
+  args->x = (double *)malloc(nb_num * sizeof(double));
+  args->denum = (double *)malloc(nb_denum * sizeof(double));
+  args->y = (double *)malloc((nb_denum + 1) * sizeof(double));
+
+  // S'assurer que la mémoire a bien été assignée
+  if (!args->num || !args->denum || args->x || args->y)
+  {
+    return EXIT_FAILURE;
+  }
+
+  // Copie des coefficients
+  memcpy(args->num, num, nb_num * sizeof(*num));
+  memcpy(args->denum, denum, nb_denum * sizeof(*num));
+
+  // Initialisation des buffers d'entrées et sorties
+  for (i = 0; i < limit; ++i)
+  {
+    if(i < nb_num)
+    {
+      args->x[i] = 0;
+    }
+    
+    if(i < nb_denum)
+    {
+      args->y[i] = 0;
+    }
+  }
+
+  // Assignation de la fréquence d'échantillonnage
+  args->fs = fs;
+
+  // Assignation du voltage de référence du mcp3402
+  args->Vref = Vref;
+
+  return EXIT_SUCCESS;
+}
+
+/* Fonction pour désallouer la mémoire occupée dans une structure d'argument pour un filtre
+ * 
+ * args : pointeur vers la structure d'argument à détruire
+ */
+void destroy_param_filtre(args_filtre *args)
+{
+  free(args->num);
+  free(args->denum);
+  free(args->x);
+  free(args->y);
+}
+
+/* Function pour l'initialisation d'une structure de filtre avec un filtre FIR
+ * Supporte la sélection d'une fenêtre
+ * 
+ * args : pointeur vers la structure d'argument à initialiser
+ * 
+ * Vref : Voltage de référence du mcp3204
+ * 
+ * fs : fréquence d'échantillonnage
+ * 
+ * fc1 : fréquence de coupure 1 (utilisé pour tout)
+ * 
+ * fc2 : fréquence de coupure 2 (utilisé seulement pour passe-bande et coupe-bande)
+ * 
+ * fc1 <= fc2 obligatoirement si coupe-bande ou passe-bande choisi
+ * 
+ * N : nombre de points pour le filtre (doit être impair)
+ * 
+ * type : type du filtre à créer
+ * 
+ * fenetre : fenêtre à applique au filtre
+ */
+int init_filtre_FIR(args_filtre *args, double Vref, double fs, double fc1, double fc2, size_t N, type_filtre type, fenetre_FIR fenetre)
+{
+  // Emplacement bidon pour le dénum du filtre FIR
+  double denum[] = {};
+
+  // N doit être impair
+  if(!(N%2))
+  {
+    return EXIT_FAILURE;
+  }
+
+  // fc1 <= fc2 obligatoirement si coupe-bande ou passe-bande choisi
+  if((type == Passe_Bande || type == Coupe_Bande) && fc1 > fc2)
+  {
+    return EXIT_FAILURE;
+  }
+
+  // Fréquences normalisée
+  double v1 = 2 * fc1 / fs;
+  double v2 = 2 * fc2 / fs;
+
+  // limite pour N points
+  int Q = (N-1)/2;
+
+  // Variable contenant le coefficient venant du filtre pur
+  double Cn;
+
+  // Variable contenant le coefficient venant de la fenêtre
+  double Wh;
+
+  // Tableau qui contiendra les coefficients pour le filtre
+  double* coeff = NULL;
+
+  // Assignation du tableau
+  coeff = (double*)malloc(N*sizeof(double));
+
+  // S'assurer que la mémoire a bien été assignée
+  if(!coeff)
+  {
+    return EXIT_FAILURE;
+  }
+
+  for(int i = 0, n = -Q; i < N; ++i, ++n) {
+    // Calcul du coefficient correspondant au type de filtre choisi
+    switch (type)
+    {
+    case Passe_Bas:
+      Cn = (n != 0) ? sin(n * M_PI * v1) / (n * M_PI) : v1;
+      break;
+
+    case Passe_Haut:
+      Cn = (n != 0) ? -sin(n * M_PI * v1) / (n * M_PI) : 1 - v1;
+      break;
+
+    case Passe_Bande:
+      Cn = (n != 0) ? (sin(n * M_PI * v2) - sin(n * M_PI * v1)) / (n * M_PI) : v2 - v1;
+      break;
+    
+    case Coupe_Bande:
+      Cn = (n != 0) ? (sin(n * M_PI * v1) - sin(n * M_PI * v2)) / (n * M_PI) : 1 + v1 - v2;
+      break;
+    
+    default:
+      Cn = 0;
+      break;
+    }
+
+    // Calcul du coefficient correspondant à la fenêtre choisie
+    switch (fenetre)
+    {
+    case Rectangulaire:
+      Wh = 1;
+      break;
+
+    case Hanning:
+      Wh = 0.5 + 0.5 * cos(n * M_PI / Q);
+      break;
+
+    case Hamming:
+      Wh = 0.54 + 0.46 * cos(n * M_PI / Q);
+      break;
+
+    case Blackman:
+      Wh = 0.42 + 0.5 * cos(n * M_PI / Q) + 0.08 * cos(2 * n * M_PI / Q);
+      break;
+    
+    default:
+      break;
+    }
+
+    coeff[i] = Cn * Wh;
+  }
+
+  int statut = init_param_filtre(args, fs, Vref, N, coeff, 0, denum);
+
+  free(coeff);
+
+  return statut;
+}
+
+/* Fonction poussant une voltage sur le mcp4922
+ * 
+ * v : volatage à pousser sur le 4922
+ * Doit être entre 0.0 et Vref
+ * 
+ * Vref : voltage de référence du mcp4922
+ * doit être positif non nul
+ * 
+ * canal : sélection du canal
+ * 0 = canal A
+ * 1 = canal B
+ * 
+ * buffered : sélectionne si le CDA doit opérer en mode buffered ou unbuffered
+ * 0 = unbuffered
+ * 1 = buffered
+ * 
+ * gain : sélectionne le type de gain
+ * 0 = Vout = Vref * D/4096
+ * 1 = Vout = 2 * Vref * D/4096
+ * 
+ * shutdown : séletionne le type d'opération
+ * 1 = mode actif, le canal maintien sa valeur
+ * 0 = shutdown, le canal deviens inactif, Vout est connecté à une résistance de 500 kohm
+ */
+void voltage_mcp4922(double v, double Vref, uint8_t canal, uint8_t buffered, uint8_t gain, uint8_t shutdown)
+{
+  //printf("V : %lf\n", v);
+  //printf("Vref : %lf\n", Vref);
+  //printf("Canal : %d\n", canal);
+  //printf("buffered : %d\n", buffered);
+  //printf("Gain : %d\n", gain);
+  //printf("Shutdown : %d\n", shutdown);
+
+  if (Vref <= 0)
+    return;
+
+  if (v < 0)
+    v = 0;
+
+  if (v > Vref)
+    v = Vref;
+
+  uint16_t data = 4095 * v / Vref;
+
+  if (canal)
+    data |= 0b1000000000000000;
+
+  if (buffered)
+    data |= 0b0100000000000000;
+
+  if (gain)
+    data |= 0b0010000000000000;
+
+  if (shutdown)
+    data |= 0b0001000000000000;
+
+  //printf("Data : %x\n", data&0xFFF);
+  uint8_t x[2];
+  x[0] = (data >> 8) & 0x0FF;
+  x[1] = data & 0x0FF;
+
+  bcm2835_spi_chipSelect(BCM2835_SPI_CS1);
+  bcm2835_spi_transfern((char *)x, 2);
+}
+
+/* Fonction effectuant la lecture du voltage aux entrées du cmp3204
+ * 
+ * diff : sélection du type d'opération
+ * 0 = voltage à l'entrée du canal spécifié
+ * 1 = différence de voltage entre 2 canaux
+ * 
+ * canal : sélection du (des) canal  (canaux) à utiliser pour la lecture
+ * si diff  == 0
+ * 0 = canal 0
+ * 1 = canal 1
+ * 2 = canal 2
+ * 3 = canal 3
+ * 
+ * si diff == 1
+ * 0 = canal 0 IN+ et canal 1 IN-
+ * 1 = canal 1 IN+ et canal 0 IN-
+ * 2 = canal 2 IN+ et canal 3 IN-
+ * 3 = canal 3 IN+ et canal 2 IN-
+ */
+double voltage_mcp3204(uint8_t diff, uint8_t canal)
+{
+  if (diff < 0)
+    diff = 0;
+
+  if (diff > 1)
+    diff = 1;
+
+  if (canal < 0)
+    canal = 0;
+
+  if (canal > 3)
+    canal = 3;
+
+  uint8_t data[3];
+
+  data[0] = 0b00000100 | (diff << 1);
+  data[1] = canal << 6;
+
+  bcm2835_spi_chipSelect(BCM2835_SPI_CS0);
+  bcm2835_spi_transfern((char *)data, 3);
+
+  uint16_t ret = (data[1] & 0x00FF);
+  ret = ret << 8;
+  ret += data[2];
+
+  return ret * 5.0 / 4095;
+}
+
+/* Fonction de filtrage de signal qui sera appeléer par le thread "thread_filtre"
+ * 
+ * Elle fait le filtrage avec le filtre qu'elle reçoit en paramètre au travers
+ * de la structure args
+ * 
+ * Le signal est échantillonné à partir du canal 0 du mcp3402
+ * 
+ * Le signal filtré est émi à partit du canal A du mcp4922
+ * 
+ * La fonction ne retourne aucune valeur
+ * La fonction reçoit ses arguments au travers de la structure args
+ */
+void *filtre_signal(void *args)
+{
+  args_filtre *args_s = (args_filtre *)args; // Recast de args pour pouvoir accéder au éléments
+
+  size_t decal_x = 0; // Index de décalage pour la tables circulaire des entrées
+  size_t decal_y = 0; // Index de décalage pour la table circulaire des sorties
+
+  size_t i; // Indexeurs pour le filtrage
+
+  clock_t debut, fin; // Variables de temps
+
+  double ps = 1 / (args_s->fs); // Calcul de la période entre chaque points
+
+  debut = clock();
+
+  while (1)
+  {
+    // Mesurer le voltage au canal 1 mcp3204 et mettre la valeur au début de la table circulaire
+    args_s->x[(args_s->nb_num - decal_x) % args_s->nb_num] = voltage_mcp3204(0, 0) - args_s->Vref / 2;
+
+    // Remettre à 0 la valeur de sortie au début de la table circulaire
+    args_s->y[(args_s->nb_denum - decal_y) % args_s->nb_denum] = 0;
+
+    // Somme des produits entre x[n-k] et h_num[k]
+    for(i = 0; i < args_s->nb_num; ++i)
+    {
+      args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] += 
+        args_s->x[(args_s->nb_num + i - decal_x) % args_s->nb_num] * args_s->num[i];
+    }
+
+    // Somme des produits entre y[n-k-1] et h_denum[k]
+    for(i = 0; i < args_s->nb_denum; ++i)
+    {
+      args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] += 
+        args_s->y[(args_s->nb_denum + 2 + i - decal_y) % (args_s->nb_denum + 1)] * args_s->denum[i];
+    }
+
+    // Envoyer le voltage du signal filtrer au mcp4922
+    voltage_mcp4922(args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] + args_s->Vref / 2,
+      args_s->Vref, 0, 0, 1, 1);
+
+    // Tourner les tableau circulaire d'un cran
+    decal_x = (decal_x + 1) % args_s->nb_num;
+    decal_y = (decal_y + 1) % args_s->nb_denum;
+
+    fin = clock(); // Temps écoulé depuis le lancement du programme
+
+    // La différence (fin - debut) donne le temps d’exécution du code
+    // On cherche une durée égale à demiPer. On compense avec un délai.
+    // CLOCK_PER_SEC est le nombre de coups d’horloges en 1 seconde
+    usleep(1000000 * (ps - ((double)(fin - debut) / ((double)CLOCKS_PER_SEC))));
+    debut = clock();
+  }
+
+  pthread_exit(NULL);
+}
+
+/* Fonction main
+  *
+  * Elle configure le GPIO et le thread.
+  *
+  * La fonction ne retourne aucune valeur.
+  * La fonction n’exige aucun paramètre en entrée.
+*/
+int main(int argc, char **argv)
+{
+  // Identificateur des threads
+  pthread_t thread_filtre;
+
+  // Arguments pour le thread
+  args_filtre args;
+
+  // Fenêtre de Blackman
+
+  // Filtre FIR passe bas à 31 points
+  //double filtre_FIR_passe_bas_num[]={-0.021220659078919,-0.021623620818304,-0.019809085184633,-0.015591488063145,-0.0089421058462139,0.,0.010929240478706,0.023387232094718,0.036788301057175,0.05045511524271,0.063661977236758,0.075682672864066,0.085839369133414,0.093548928378863,0.098363164308347,0.1,0.098363164308347,0.093548928378863,0.085839369133414,0.075682672864066,0.063661977236758,0.05045511524271,0.036788301057175,0.023387232094718,0.010929240478706,0.,-0.0089421058462139,-0.015591488063145,-0.019809085184633,-0.021623620818304,-0.021220659078919};
+  //double filtre_FIR_passe_bas_denum[]={};
+  //
+  //// Initialiser la structure d'Arguments du filtre
+  //if(init_param_filtre(&args, 1000.0, 5.0, 31, filtre_FIR_passe_bas_num, 0, filtre_FIR_passe_bas_denum))
+  //{
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre FIR Passe-Bas à 31 points
+  if(init_filtre_FIR(&args, 5.0, 1000.0, 50.0, 0.0, 31, Passe_Bas, Rectangulaire))
+  {
+    return EXIT_FAILURE;
+  }
+
+  //printf("bcm2835 initiated\n");
+  // Configuration du GPIO pour bouton - poussoir 1
+  bcm2835_gpio_fsel(19, BCM2835_GPIO_FSEL_INPT);
+
+  // Initialisation du GPIO en SPI
+  if (!bcm2835_spi_begin())
+  {
+    //printf("can't init spi\n");
+    return EXIT_FAILURE;
+  }
+
+  // Configurer l'ordre de transmition et MSBF
+  bcm2835_spi_setBitOrder(BCM2835_SPI_BIT_ORDER_MSBFIRST);
+
+  // Configurer la vitesse de transmission
+  bcm2835_spi_set_speed_hz(16384);
+
+  // Configuration du mode SPI
+  bcm2835_spi_setDataMode(BCM2835_SPI_MODE0);
+
+  // Configuer le chip select et son état d'Activation
+  bcm2835_spi_setChipSelectPolarity(BCM2835_SPI_CS1, LOW);
+  bcm2835_spi_setChipSelectPolarity(BCM2835_SPI_CS0, LOW);
+
+  // Création du thread "thread_filtre".
+  // Lien avec la fonction filtre_signal.
+  // Les paramêtres sont envoyé via args.
+  if(pthread_create(&thread_filtre, NULL, &filtre_signal, &args))
+  {
+    return EXIT_FAILURE;
+  }
+
+  // Boucle tant que le bouton - poussoir est non enfoncé
+  while (bcm2835_gpio_lev(19))
+  {
+    // printf("button loop\n");
+    usleep(1000); // Délai de 1 ms !!!
+  }
+
+  // Si bouton - poussoir enfoncé, arrêt immédiat du thread
+  pthread_cancel(thread_filtre);
+
+  // Attente de l’arrêt du thread
+  pthread_join(thread_filtre, NULL);
+
+  // Remettre la sortie du mcp4922 à 0
+  voltage_mcp4922(0, args.Vref, 0, 0, 1, 0);
+
+  // Libérer le SPI
+  bcm2835_spi_end();
+
+  // Libérer le GPIO
+  bcm2835_close();
+
+  // Libérer la mémoire utilisée pour le filtrage
+  destroy_param_filtre(&args);
+
+  return EXIT_SUCCESS;
+}
