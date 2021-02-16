@@ -42,7 +42,7 @@ double *discret_ligne(int N)
 
   for(int i=0; i<N; ++i){
     points[i]=2*i/(N-1.0)-1;
-    printf("points[%d] = %lf\n", i, points[i]);
+    //printf("points[%d] = %lf\n", i, points[i]);
   }
 
   return points;
@@ -218,8 +218,8 @@ int main(int argc, char **argv)
 
   //printf("spi initiated\n");
   // Calculs des points du cosinus et assignation dans la variable globale
-  //args.points_signal = discret_cosinus(args.nbPoints);
   args.points_signal = discret_cosinus(args.nbPoints);
+  //args.points_signal = discret_ligne(args.nbPoints);
 
   // S'assurer que les points sont bien assignées
   if (!args.points_signal)
