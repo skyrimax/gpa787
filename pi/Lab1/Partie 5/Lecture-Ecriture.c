@@ -16,8 +16,8 @@
 #include <time.h>
 #include <math.h>
 
-#define NB_POINTS_COS 16 // Nombre de points utilisé pour discrétiser le cosin
-#define FREQUENCE 16.0   // Hertz : fréquence du cosinus désirée
+#define NB_POINTS 1 // Nombre de points utilisé pour discrétiser le cosin
+#define FREQUENCE_AQUISITION  1000.0   // Hertz : fréquence d'acquisition de l'onde à l'entrée
 #define AMPLITUDE 4.0    // Voltage crête à crête de l'onde cosinusoïdale
 #define VREF 5.0         // Voltage de référence du mcp4922
 
@@ -131,7 +131,56 @@ void voltage_mcp4922(double v, double Vref, uint8_t canal, uint8_t buffered, uin
   x[0] = (data>>8)&0x0FF;
   x[1] = data&0x0FF;
   
+  bcm2835_spi_chipSelect(BCM2835_SPI_CS1);
   bcm2835_spi_transfern((char *)x, 2);
+}
+
+/* Fonction effectuant la lecture du voltage aux entrées du cmp3204
+ * 
+ * diff : sélection du type d'opération
+ * 0 = voltage à l'entrée du canal spécifié
+ * 1 = différence de voltage entre 2 canaux
+ * 
+ * canal : sélection du (des) canal  (canaux) à utiliser pour la lecture
+ * si diff  == 0
+ * 0 = canal 0
+ * 1 = canal 1
+ * 2 = canal 2
+ * 3 = canal 3
+ * 
+ * si diff == 1
+ * 0 = canal 0 IN+ et canal 1 IN-
+ * 1 = canal 1 IN+ et canal 0 IN-
+ * 2 = canal 2 IN+ et canal 3 IN-
+ * 3 = canal 3 IN+ et canal 2 IN-
+ */
+double voltage_mcp3204(uint8_t diff, uint8_t canal)
+{
+  if(diff < 0)
+    diff = 0;
+  
+  if(diff > 1)
+    diff = 1;
+  
+  if(canal < 0)
+    canal = 0;
+
+  if(canal > 3)
+    canal =3;
+
+  uint8_t data[3];
+
+  data[0] = 0b00000100 | (diff << 1);
+  data[1] = canal << 6;
+
+  bcm2835_spi_chipSelect(BCM2835_SPI_CS0);
+  bcm2835_spi_transfern((char *) data, 3);
+
+  uint16_t ret = (data[1] & 0x00FF);
+  ret = ret << 8;
+  ret += data[2];
+
+  return ret * 5.0/4095;
 }
 
 /* Fonction clignote qui sera appelée par le thread " cligne "
@@ -141,9 +190,8 @@ void voltage_mcp4922(double v, double Vref, uint8_t canal, uint8_t buffered, uin
 * La fonction ne retourne aucune valeur .
 * La fonction n’exige aucun param ètre en entrée.
 */
-void *signal_mcp4922(void *args)
+void *traitement_signal(void *args)
 {
-  uint i = 0;
   clock_t debut, fin; // Variables de temps
   struct args_signal *args_s = (struct args_signal *)args;
   //printf("Frequency : %lf\n", args_s->frequence);
@@ -164,9 +212,7 @@ void *signal_mcp4922(void *args)
   while (1)
   {
     //printf("i : %d\n", i);
-    voltage_mcp4922(args_s->amplitude / 2 * args_s->points_signal[i] + args_s->vRef / 2, args_s->vRef, 0, 0, 1, 1);
-
-    i = (i + 1) % args_s->nbPoints;
+    voltage_mcp4922(voltage_mcp3204(0, 0), args_s->vRef, 0, 0, 1, 1);
 
     fin = clock(); // Temps écoulé depuis le lancement du programme
 
@@ -195,8 +241,8 @@ int main(int argc, char **argv)
   // Arguments pour le thread
   struct args_signal args;
   args.amplitude = AMPLITUDE;
-  args.frequence = FREQUENCE;
-  args.nbPoints = NB_POINTS_COS;
+  args.frequence = FREQUENCE_AQUISITION;
+  args.nbPoints = NB_POINTS;
   args.points_signal = NULL;
   args.vRef = VREF;
 
@@ -222,15 +268,15 @@ int main(int argc, char **argv)
 
   //printf("spi initiated\n");
   // Calculs des points du cosinus et assignation dans la variable globale
-  args.points_signal = discret_cosinus(args.nbPoints);
+  //args.points_signal = discret_cosinus(args.nbPoints);
   //args.points_signal = discret_ligne(args.nbPoints);
 
   // S'assurer que les points sont bien assignées
-  if (!args.points_signal)
-  {
-    //printf("can't create points\n");
-    return EXIT_FAILURE;
-  }
+  //if (!args.points_signal)
+  //{
+  //  //printf("can't create points\n");
+  //  return EXIT_FAILURE;
+  //}
 
   // Configurer l'ordre de transmition et MSBF
   bcm2835_spi_setBitOrder(BCM2835_SPI_BIT_ORDER_MSBFIRST);
@@ -242,13 +288,12 @@ int main(int argc, char **argv)
   bcm2835_spi_setDataMode(BCM2835_SPI_MODE0);
 
   // Configuer le chip select et son état d'Activation
-  bcm2835_spi_chipSelect(BCM2835_SPI_CS1);
   bcm2835_spi_setChipSelectPolarity(BCM2835_SPI_CS1, LOW);
 
-  // Création du thread "cosin".
-  // Lien avec la fonction clignote.
-  // Cette dernière n’exige pas de paramètres.
-  if (pthread_create(&thread_signal, NULL, &signal_mcp4922, &args))
+  // Création du thread "thread_signal".
+  // Lien avec la fonction traitement_signal.
+  // Les paramêtres sont envoyé via args.
+  if (pthread_create(&thread_signal, NULL, &traitement_signal, &args))
   {
     //printf("can't create thread\n");
     return EXIT_FAILURE;
@@ -276,7 +321,7 @@ int main(int argc, char **argv)
   bcm2835_close();
 
   // Libérer la mémoire utilisée pour les points du cosinus
-  free(args.points_signal);
+  //free(args.points_signal);
 
   return 0;
 }
