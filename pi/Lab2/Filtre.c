@@ -85,12 +85,16 @@ int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, 
   // Indexeur pour l'initialisation de buffers
   size_t i;
   size_t limit = max(nb_num, nb_denum);
-
+  
   // Initialisation des pointeurs pour pouvoir détecter les erreurs d'allocation de mémoire
   args->num = NULL;
   args->denum = NULL;
   args->x = NULL;
   args->y = NULL;
+
+  // Assignation des tailles des numinateur et dénominateur
+  args->nb_num = nb_num;
+  args->nb_denum = nb_denum;
 
   // Allocation de la mémoire
   args->num = (double *)malloc(nb_num * sizeof(double));
@@ -98,9 +102,30 @@ int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, 
   args->denum = (double *)malloc(nb_denum * sizeof(double));
   args->y = (double *)malloc((nb_denum + 1) * sizeof(double));
 
-  // S'assurer que la mémoire a bien été assignée
-  if (!args->num || !args->denum || args->x || args->y)
-  {
+  //// S'assurer que la mémoire a bien été assignée
+  //if ((!args->num && nb_num) || (!args->denum && nb_denum) || (!args->x && nb_num) || !args->y)
+  //{
+  //  printf("Can't allocate memory for coefficients\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  if(!args->num && nb_num) {
+    printf("Can't allocate memory for num coefficients\n");
+    return EXIT_FAILURE;
+  }
+
+  if(!args->denum && nb_denum) {
+    printf("Can't allocate memory for denum coefficients\n");
+    return EXIT_FAILURE;
+  }
+
+  if(!args->x && nb_num) {
+    printf("Can't allocate memory for x buffer\n");
+    return EXIT_FAILURE;
+  }
+
+  if(!args->y) {
+    printf("Can't allocate memory for y buffer\n");
     return EXIT_FAILURE;
   }
 
@@ -172,12 +197,14 @@ int init_filtre_FIR(args_filtre *args, double Vref, double fs, double fc1, doubl
   // N doit être impair
   if(!(N%2))
   {
+    printf("N ne peut pas être pair\nValeur de N : %d\n",N);
     return EXIT_FAILURE;
   }
 
   // fc1 <= fc2 obligatoirement si coupe-bande ou passe-bande choisi
   if((type == Passe_Bande || type == Coupe_Bande) && fc1 > fc2)
   {
+    printf("Erreur fréquences de coupure\nfc1 : %lf\nfc2 : %lf\n", fc1, fc2);
     return EXIT_FAILURE;
   }
 
@@ -203,6 +230,7 @@ int init_filtre_FIR(args_filtre *args, double Vref, double fs, double fc1, doubl
   // S'assurer que la mémoire a bien été assignée
   if(!coeff)
   {
+    printf("Can't allocate memory for coefficients\n");
     return EXIT_FAILURE;
   }
 
@@ -410,7 +438,7 @@ void *filtre_signal(void *args)
     args_s->x[(args_s->nb_num - decal_x) % args_s->nb_num] = voltage_mcp3204(0, 0) - args_s->Vref / 2;
 
     // Remettre à 0 la valeur de sortie au début de la table circulaire
-    args_s->y[(args_s->nb_denum - decal_y) % args_s->nb_denum] = 0;
+    args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] = 0;
 
     // Somme des produits entre x[n-k] et h_num[k]
     for(i = 0; i < args_s->nb_num; ++i)
@@ -422,8 +450,8 @@ void *filtre_signal(void *args)
     // Somme des produits entre y[n-k-1] et h_denum[k]
     for(i = 0; i < args_s->nb_denum; ++i)
     {
-      args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] += 
-        args_s->y[(args_s->nb_denum + 2 + i - decal_y) % (args_s->nb_denum + 1)] * args_s->denum[i];
+      args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] -= 
+        args_s->y[(args_s->nb_denum + i - decal_y) % (args_s->nb_denum + 1)] * args_s->denum[i];
     }
 
     // Envoyer le voltage du signal filtrer au mcp4922
@@ -432,7 +460,7 @@ void *filtre_signal(void *args)
 
     // Tourner les tableau circulaire d'un cran
     decal_x = (decal_x + 1) % args_s->nb_num;
-    decal_y = (decal_y + 1) % args_s->nb_denum;
+    decal_y = (decal_y + 1) % (args_s->nb_denum + 1);
 
     fin = clock(); // Temps écoulé depuis le lancement du programme
 
@@ -461,21 +489,49 @@ int main(int argc, char **argv)
   // Arguments pour le thread
   args_filtre args;
 
-  // Fenêtre de Blackman
+  // Filtre FIR passe bas à 31 points fenêtre rectangulaire
+  double filtre_FIR_passe_bas_num[]={-0.021220659078919,-0.021623620818304,-0.019809085184633,-0.015591488063145,-0.0089421058462139,0.,0.010929240478706,0.023387232094718,0.036788301057175,0.05045511524271,0.063661977236758,0.075682672864066,0.085839369133414,0.093548928378863,0.098363164308347,0.1,0.098363164308347,0.093548928378863,0.085839369133414,0.075682672864066,0.063661977236758,0.05045511524271,0.036788301057175,0.023387232094718,0.010929240478706,0.,-0.0089421058462139,-0.015591488063145,-0.019809085184633,-0.021623620818304,-0.021220659078919};
+  double filtre_FIR_passe_bas_denum[]={};
 
-  // Filtre FIR passe bas à 31 points
-  //double filtre_FIR_passe_bas_num[]={-0.021220659078919,-0.021623620818304,-0.019809085184633,-0.015591488063145,-0.0089421058462139,0.,0.010929240478706,0.023387232094718,0.036788301057175,0.05045511524271,0.063661977236758,0.075682672864066,0.085839369133414,0.093548928378863,0.098363164308347,0.1,0.098363164308347,0.093548928378863,0.085839369133414,0.075682672864066,0.063661977236758,0.05045511524271,0.036788301057175,0.023387232094718,0.010929240478706,0.,-0.0089421058462139,-0.015591488063145,-0.019809085184633,-0.021623620818304,-0.021220659078919};
-  //double filtre_FIR_passe_bas_denum[]={};
-  //
-  //// Initialiser la structure d'Arguments du filtre
+  // Filtre Butterworth passe bas 1er ordre
+  double filtre_Butterworth_passe_bas_1er_ordre_num[] = {0.13672873599733,0.13672873599733};
+  double filtre_Butterworth_passe_bas_1er_ordre_denum[] = {1.,-0.7265425280054};
+
+  // Filtre Butterworth passe bas 4er ordre
+  double filtre_Butterworth_passe_bas_4e_ordre_num[] = {0.00041659920440667,0.0016663968176267,0.00249959522644,0.0016663968176267,0.00041659920440667};
+  double filtre_Butterworth_passe_bas_4e_ordre_denum[] = {-3.1806385488743,3.8611943489943,-2.1121553551109,0.43826514226196};
+
+  // Initialiser la structure d'Arguments du filtre
   //if(init_param_filtre(&args, 1000.0, 5.0, 31, filtre_FIR_passe_bas_num, 0, filtre_FIR_passe_bas_denum))
   //{
   //  return EXIT_FAILURE;
   //}
 
-  // Filtre FIR Passe-Bas à 31 points
-  if(init_filtre_FIR(&args, 5.0, 1000.0, 50.0, 0.0, 31, Passe_Bas, Rectangulaire))
+  // Filtre FIR Passe-Bas à 31 points fenêtre rectangulaire
+  //if(init_filtre_FIR(&args, 5.0, 1000.0, 50.0, 0.0, 31, Passe_Bas, Rectangulaire))
+  //{
+  //  printf("can't create filter\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre FIR Passe-Bas à 31 points fenêtre blackman
+  //if(init_filtre_FIR(&args, 5.0, 1000.0, 50.0, 0.0, 31, Passe_Bas, Blackman))
+  //{
+  //  printf("can't create filter\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre Butterworth passe bas 1er ordre
+  if(init_param_filtre(&args, 1000.0, 5.0, 5, filtre_Butterworth_passe_bas_1er_ordre_num, 4, filtre_Butterworth_passe_bas_1er_ordre_denum))
   {
+    printf("can't create filter\n");
+    return EXIT_FAILURE;
+  }
+
+  // Initialisation du bcm2835
+  if (!bcm2835_init())
+  {
+    printf("Can't init bcm2835\n");
     return EXIT_FAILURE;
   }
 
@@ -486,7 +542,7 @@ int main(int argc, char **argv)
   // Initialisation du GPIO en SPI
   if (!bcm2835_spi_begin())
   {
-    //printf("can't init spi\n");
+    printf("can't init spi\n");
     return EXIT_FAILURE;
   }
 
