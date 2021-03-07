@@ -524,7 +524,7 @@ int main(int argc, char **argv)
   double filtre_Chebishev2_passe_bas_4e_ordre_num[] = {0.0097360574711215,-0.032136974698146,0.045452258999065,-0.032136974698146,0.0097360574711215};
   double filtre_Chebishev2_passe_bas_4e_ordre_denom[] = {-3.5729428087013,4.8079146527183,-2.8863251582841,0.65200370629};
 
-  // Filtre Butterworth passe haut 1er ordre
+  // Filtre Butterworth passe haut 2e ordre
   double filtre_Butterworth_passe_haut_2e_ordre_num[] = {0.8370891905663,-1.6741783811326,0.8370891905663};
   double filtre_Butterworth_passe_haut_2e_ordre_denom[] = {-1.6474599810769,0.7008967811884};
 
