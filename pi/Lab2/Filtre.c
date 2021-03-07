@@ -47,8 +47,8 @@ typedef struct
   // Coefficients du filtre
   size_t nb_num;
   double *num;
-  size_t nb_denum;
-  double *denum;
+  size_t nb_denom;
+  double *denom;
 
   // Tableaux contenant les valeurs d'entré et de sortie présentes et passées
   double *x;
@@ -74,36 +74,36 @@ double max(double nb1, double nb2)
  * 
  * num : tableau de coefficient du numérateur (fera une copie)
  * 
- * nb_denum : nombre de coefficient au dénominateur
+ * nb_denom : nombre de coefficient au dénominateur
  * 
  * demum : tableau de coefficient du dénominateur (fera une copie)
  * 
  * Retourne s'il y a eu un problème durant l'allocation
  */
-int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, double *num, size_t nb_denum, double *denum)
+int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, double *num, size_t nb_denom, double *denum)
 {
   // Indexeur pour l'initialisation de buffers
   size_t i;
-  size_t limit = max(nb_num, nb_denum);
+  size_t limit = max(nb_num, nb_denom);
   
   // Initialisation des pointeurs pour pouvoir détecter les erreurs d'allocation de mémoire
   args->num = NULL;
-  args->denum = NULL;
+  args->denom = NULL;
   args->x = NULL;
   args->y = NULL;
 
   // Assignation des tailles des numinateur et dénominateur
   args->nb_num = nb_num;
-  args->nb_denum = nb_denum;
+  args->nb_denom = nb_denom;
 
   // Allocation de la mémoire
   args->num = (double *)malloc(nb_num * sizeof(double));
   args->x = (double *)malloc(nb_num * sizeof(double));
-  args->denum = (double *)malloc(nb_denum * sizeof(double));
-  args->y = (double *)malloc((nb_denum + 1) * sizeof(double));
+  args->denom = (double *)malloc(nb_denom * sizeof(double));
+  args->y = (double *)malloc((nb_denom + 1) * sizeof(double));
 
   //// S'assurer que la mémoire a bien été assignée
-  //if ((!args->num && nb_num) || (!args->denum && nb_denum) || (!args->x && nb_num) || !args->y)
+  //if ((!args->num && nb_num) || (!args->denum && nb_denom) || (!args->x && nb_num) || !args->y)
   //{
   //  printf("Can't allocate memory for coefficients\n");
   //  return EXIT_FAILURE;
@@ -114,7 +114,7 @@ int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, 
     return EXIT_FAILURE;
   }
 
-  if(!args->denum && nb_denum) {
+  if(!args->denom && nb_denom) {
     printf("Can't allocate memory for denum coefficients\n");
     return EXIT_FAILURE;
   }
@@ -131,7 +131,7 @@ int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, 
 
   // Copie des coefficients
   memcpy(args->num, num, nb_num * sizeof(*num));
-  memcpy(args->denum, denum, nb_denum * sizeof(*num));
+  memcpy(args->denom, denum, nb_denom * sizeof(*num));
 
   // Initialisation des buffers d'entrées et sorties
   for (i = 0; i < limit; ++i)
@@ -141,7 +141,7 @@ int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, 
       args->x[i] = 0;
     }
     
-    if(i < nb_denum)
+    if(i < nb_denom)
     {
       args->y[i] = 0;
     }
@@ -153,6 +153,17 @@ int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, 
   // Assignation du voltage de référence du mcp3402
   args->Vref = Vref;
 
+  // Prints for sanity check
+  //printf("Coeffs num :\n");
+  //for(i = 0; i < nb_num; ++i) {
+  //  printf("Coeff %d : %lf\n", i, args->num[i]);
+  //}
+
+  //printf("\nCoeffs denom\n");
+  //for(i = 0; i < nb_denom; ++i) {
+  //  printf("Coeff %d : %lf\n", i, args->denom[i]);
+  //}
+
   return EXIT_SUCCESS;
 }
 
@@ -163,7 +174,7 @@ int init_param_filtre(args_filtre *args, double fs, double Vref, size_t nb_num, 
 void destroy_param_filtre(args_filtre *args)
 {
   free(args->num);
-  free(args->denum);
+  free(args->denom);
   free(args->x);
   free(args->y);
 }
@@ -421,9 +432,6 @@ void *filtre_signal(void *args)
 {
   args_filtre *args_s = (args_filtre *)args; // Recast de args pour pouvoir accéder au éléments
 
-  size_t decal_x = 0; // Index de décalage pour la tables circulaire des entrées
-  size_t decal_y = 0; // Index de décalage pour la table circulaire des sorties
-
   size_t i; // Indexeurs pour le filtrage
 
   clock_t debut, fin; // Variables de temps
@@ -434,33 +442,36 @@ void *filtre_signal(void *args)
 
   while (1)
   {
-    // Mesurer le voltage au canal 1 mcp3204 et mettre la valeur au début de la table circulaire
-    args_s->x[(args_s->nb_num - decal_x) % args_s->nb_num] = voltage_mcp3204(0, 0) - args_s->Vref / 2;
+    // Mesurer le voltage au canal 1 mcp3204 et mettre la valeur au début du buffer d'entrée
+    args_s->x[0] = voltage_mcp3204(0, 0) - args_s->Vref / 2;
 
-    // Remettre à 0 la valeur de sortie au début de la table circulaire
-    args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] = 0;
+    // Remettre à 0 la valeur de sortie au début du buffer de sorties
+    args_s->y[0] = 0;
 
     // Somme des produits entre x[n-k] et h_num[k]
     for(i = 0; i < args_s->nb_num; ++i)
     {
-      args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] += 
-        args_s->x[(args_s->nb_num + i - decal_x) % args_s->nb_num] * args_s->num[i];
+      args_s->y[0] += args_s->x[i] * args_s->num[i];
     }
 
     // Somme des produits entre y[n-k-1] et h_denum[k]
-    for(i = 0; i < args_s->nb_denum; ++i)
+    for(i = 0; i < args_s->nb_denom; ++i)
     {
-      args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] -= 
-        args_s->y[(args_s->nb_denum + i - decal_y) % (args_s->nb_denum + 1)] * args_s->denum[i];
+      args_s->y[0] -= args_s->y[i + 1] * args_s->denom[i];
     }
 
     // Envoyer le voltage du signal filtrer au mcp4922
-    voltage_mcp4922(args_s->y[(args_s->nb_denum + 1 - decal_y) % (args_s->nb_denum + 1)] + args_s->Vref / 2,
-      args_s->Vref, 0, 0, 1, 1);
+    voltage_mcp4922(args_s->y[0] + args_s->Vref / 2, args_s->Vref, 0, 0, 1, 1);
 
-    // Tourner les tableau circulaire d'un cran
-    decal_x = (decal_x + 1) % args_s->nb_num;
-    decal_y = (decal_y + 1) % (args_s->nb_denum + 1);
+    // Décaler les buffers x et y
+    for(i = args_s->nb_num - 1; i > 0; --i) {
+      args_s->x[i] = args_s->x[i - 1];
+    }
+
+    // Décaler les buffers x et y
+    for(i = args_s->nb_denom; i > 0; --i) {
+      args_s->y[i] = args_s->y[i - 1];
+    }
 
     fin = clock(); // Temps écoulé depuis le lancement du programme
 
@@ -491,15 +502,31 @@ int main(int argc, char **argv)
 
   // Filtre FIR passe bas à 31 points fenêtre rectangulaire
   double filtre_FIR_passe_bas_num[]={-0.021220659078919,-0.021623620818304,-0.019809085184633,-0.015591488063145,-0.0089421058462139,0.,0.010929240478706,0.023387232094718,0.036788301057175,0.05045511524271,0.063661977236758,0.075682672864066,0.085839369133414,0.093548928378863,0.098363164308347,0.1,0.098363164308347,0.093548928378863,0.085839369133414,0.075682672864066,0.063661977236758,0.05045511524271,0.036788301057175,0.023387232094718,0.010929240478706,0.,-0.0089421058462139,-0.015591488063145,-0.019809085184633,-0.021623620818304,-0.021220659078919};
-  double filtre_FIR_passe_bas_denum[]={};
+  double filtre_FIR_passe_bas_denom[]={};
 
   // Filtre Butterworth passe bas 1er ordre
   double filtre_Butterworth_passe_bas_1er_ordre_num[] = {0.13672873599733,0.13672873599733};
-  double filtre_Butterworth_passe_bas_1er_ordre_denum[] = {1.,-0.7265425280054};
+  double filtre_Butterworth_passe_bas_1er_ordre_denom[] = {-0.7265425280054};
 
   // Filtre Butterworth passe bas 4er ordre
   double filtre_Butterworth_passe_bas_4e_ordre_num[] = {0.00041659920440667,0.0016663968176267,0.00249959522644,0.0016663968176267,0.00041659920440667};
   double filtre_Butterworth_passe_bas_4e_ordre_denum[] = {-3.1806385488743,3.8611943489943,-2.1121553551109,0.43826514226196};
+
+  // Filtre Chebishev type 1 passe bas 4e order
+  double filtre_Chebishev1_passe_bas_4e_ordre_num[] = {1.2984963538692E-4,5.1939854154768E-4,7.7909781232152E-4,5.1939854154768E-4,1.2984963538692E-4};
+  double filtre_Chebishev1_passe_bas_4e_ordre_denom[] = {-3.6078961691291,4.9794708037511,-3.1107636829829,0.74152014735582};
+
+  // Filtre Chebishev type 2 passe bas 1e order
+  double filtre_Chebishev2_passe_bas_1er_ordre_num[] = {0.0015814187549159,0.0015814187549159};
+  double filtre_Chebishev2_passe_bas_1er_ordre_denom[] = {-0.99683716249018};
+
+  // Filtre Chebishev type 2 passe bas 4e order
+  double filtre_Chebishev2_passe_bas_4e_ordre_num[] = {0.0097360574711215,-0.032136974698146,0.045452258999065,-0.032136974698146,0.0097360574711215};
+  double filtre_Chebishev2_passe_bas_4e_ordre_denom[] = {-3.5729428087013,4.8079146527183,-2.8863251582841,0.65200370629};
+
+  // Filtre Butterworth passe haut 1er ordre
+  double filtre_Butterworth_passe_haut_2e_ordre_num[] = {0.8370891905663,-1.6741783811326,0.8370891905663};
+  double filtre_Butterworth_passe_haut_2e_ordre_denom[] = {-1.6474599810769,0.7008967811884};
 
   // Initialiser la structure d'Arguments du filtre
   //if(init_param_filtre(&args, 1000.0, 5.0, 31, filtre_FIR_passe_bas_num, 0, filtre_FIR_passe_bas_denum))
@@ -522,7 +549,42 @@ int main(int argc, char **argv)
   //}
 
   // Filtre Butterworth passe bas 1er ordre
-  if(init_param_filtre(&args, 1000.0, 5.0, 5, filtre_Butterworth_passe_bas_1er_ordre_num, 4, filtre_Butterworth_passe_bas_1er_ordre_denum))
+  //if(init_param_filtre(&args, 1000.0, 5.0, 2, filtre_Butterworth_passe_bas_1er_ordre_num, 1, filtre_Butterworth_passe_bas_1er_ordre_denom))
+  //{
+  //  printf("can't create filter\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre Butterworth passe bas 4er ordre
+  //if(init_param_filtre(&args, 1000.0, 5.0, 5, filtre_Butterworth_passe_bas_4e_ordre_num, 4, filtre_Butterworth_passe_bas_4e_ordre_denum))
+  //{
+  //  printf("can't create filter\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre Chebishev type 1 passe bas 4e order
+  //if(init_param_filtre(&args, 1000.0, 5.0, 5, filtre_Chebishev1_passe_bas_4e_ordre_num, 4, filtre_Chebishev1_passe_bas_4e_ordre_denom))
+  //{
+  //  printf("can't create filter\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre Chebishev type 2 passe bas 1e order
+  //if(init_param_filtre(&args, 1000.0, 5.0, 2, filtre_Chebishev2_passe_bas_1er_ordre_num, 1, filtre_Chebishev2_passe_bas_1er_ordre_denom))
+  //{
+  //  printf("can't create filter\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre Chebishev type 2 passe bas 4e order
+  //if(init_param_filtre(&args, 1000.0, 5.0, 5, filtre_Chebishev2_passe_bas_4e_ordre_num, 4, filtre_Chebishev2_passe_bas_4e_ordre_denom))
+  //{
+  //  printf("can't create filter\n");
+  //  return EXIT_FAILURE;
+  //}
+
+  // Filtre Butterworth passe haut 2e ordre
+  if(init_param_filtre(&args, 1000.0, 5.0, 3, filtre_Butterworth_passe_haut_2e_ordre_num, 2, filtre_Butterworth_passe_haut_2e_ordre_denom))
   {
     printf("can't create filter\n");
     return EXIT_FAILURE;
