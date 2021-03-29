@@ -347,6 +347,8 @@ void *choix_mode(void* args)
       usleep(1000);
     }
   }
+
+  pthread_exit(NULL);
 }
 
 /* Fonction main
