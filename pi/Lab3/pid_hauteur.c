@@ -326,6 +326,8 @@ void destroy_param_simulation(args_simulation *args)
  */
 typedef struct
 {
+    double min_commande;
+    double max_commande;
     double P;
     double I;
     double D;
@@ -350,8 +352,11 @@ typedef struct
  * 
  * retourne toujours EXIT_SUCCESS
  */
-int init_param_PID(args_PID *args, double P, double I, double D, double Ts)
+int init_param_PID(args_PID *args, double min_commande, double max_commande, double P, double I, double D, double Ts)
 {
+    args->min_commande = min_commande;
+    args->max_commande = max_commande;
+
     args->P = P;
     args->I = I;
     args->D = D;
@@ -399,10 +404,10 @@ typedef struct
  * 
  * retourne toujours EXIT_SUCCESS
  */
-int init_param_MIMO_PID(args_MIMO_PID *args, double P1, double I1, double D1, double Ts1, double P2, double I2, double D2, double Ts2)
+int init_param_MIMO_PID(args_MIMO_PID *args, double min_commande1, double max_commande1, double P1, double I1, double D1, double Ts1, double min_commande2, double max_commande2, double P2, double I2, double D2, double Ts2)
 {
-    init_param_PID(&args->params_PID_1, P1, I1, D1, Ts1);
-    init_param_PID(&args->params_PID_2, P2, I2, D2, Ts2);
+    init_param_PID(&args->params_PID_1, min_commande1, max_commande1, P1, I1, D1, Ts1);
+    init_param_PID(&args->params_PID_2, min_commande2, max_commande2, P2, I2, D2, Ts2);
 
     return EXIT_SUCCESS;
 }
@@ -424,8 +429,8 @@ double PID(double consigne, double echantillon, args_PID* params)
                 params->I*params->Ts*(params->e0 + params->e1)/2 +
                 params->D*(params->e0 - 2*params->e1 + params->e2) + params->u0;
 
-    u1 = (u1 < 0.0) ? 0.0 : u1;
-    u1 = (u1 > 100.0) ? 100.0 : u1;
+    u1 = (u1 < params->min_commande) ? params->min_commande : u1;
+    u1 = (u1 > params->max_commande) ? params->max_commande : u1;
 
     params->e2 = params->e1;
     params->e1 = params->e0;
@@ -741,7 +746,7 @@ int main(int args, char *argv[])
     }
 
     // Initialisation de la structure de paramêtres du PID
-    init_param_PID(&params_PID, 2.0, 0.1, 0, 1.0/1.0);
+    init_param_PID(&params_PID, 0.0, 5.0, 2.0, 0.1, 0, 1.0/1.0);
 
     // Initialisation de la structure de la simulation
     if(init_param_simulation(&struct_simulation, 1.0, 500, PID_hauteur, &params_PID)) {

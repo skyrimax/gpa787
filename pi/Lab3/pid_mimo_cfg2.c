@@ -725,27 +725,18 @@ int main(int args, char *argv[])
 {
     int status = EXIT_SUCCESS;
 
-    // Threads pour controler les commandes avec les boutons
-    pthread_t set_chaud_20;
-    pthread_t set_froid_20;
-    pthread_t set_chaud_60;
-    pthread_t set_froid_60;
-
     // Thread de la simulation
     pthread_t thread_simulation;
 
-    // Structures pour controler les commandes avec les boutons
-    args_commande chaud_20;
-    args_commande froid_20;
-    args_commande chaud_60;
-    args_commande froid_60;
+    // Structure de paramêtres du controleur PID
+    args_MIMO_PID params_MIMO_PID;
 
     // Structure de la simulation
     args_simulation struct_simulation;
 
     // Fichier CSV ou écrire les données durant la simulation
     FILE* csv_file = NULL;
-    csv_file = fopen("resultats_simulation_boucle_ouverte.csv", "w");
+    csv_file = fopen("resultats_simulation_PID_MIMO_cfg2.csv", "w");
     //csv_file = fopen("test.csv", "w");
 
     if(!csv_file) {
@@ -754,14 +745,11 @@ int main(int args, char *argv[])
         goto init_fail;
     }
 
-    // Initialisation des structures pour controler les commandes avec les boutons
-    init_param_commande(&chaud_20, 26, 5.0*0.2, &struct_simulation.uH);
-    init_param_commande(&froid_20, 26, 5.0*0.2, &struct_simulation.uC);
-    init_param_commande(&chaud_60, 19, 5.0*0.6, &struct_simulation.uH);
-    init_param_commande(&froid_60, 19, 5.0*0.6, &struct_simulation.uC);
+    // Initialisation de la structure de paramêtres du PID
+    init_param_MIMO_PID(&params_MIMO_PID, 0.0, 5.0, 2.0, 0.1, 0, 1.0/1.0, 0.0, 5.0, -2.0/6.0, -0.1/6.0, -0, 1.0/1.0);
 
     // Initialisation de la structure de la simulation
-    if(init_param_simulation(&struct_simulation, 1.0, 500, boucle_ouverte, NULL)) {
+    if(init_param_simulation(&struct_simulation, 1.0, 500, MIMO_PID_config2, &params_MIMO_PID)) {
         printf("Unable to initialize parameter structure for simulation\n");
         status = EXIT_FAILURE;
         goto init_fail;
@@ -781,8 +769,8 @@ int main(int args, char *argv[])
     }
 
     // Initialiser les commandes à 20 pourcents
-    struct_simulation.uH = 5.0*0.2;
-    struct_simulation.uC = 5.0*0.2;
+    struct_simulation.consigne_hauteur = 2.5;
+    struct_simulation.consigne_temp = 55;
 
     // Initialisation du bcm2835
     if (!bcm2835_init())
@@ -796,31 +784,6 @@ int main(int args, char *argv[])
     bcm2835_gpio_fsel(19, BCM2835_GPIO_FSEL_INPT);
     // Configuration du GPIO pour bouton - poussoir 2
     bcm2835_gpio_fsel(26, BCM2835_GPIO_FSEL_INPT);
-
-    // Creation et lancementdes thread pour controler les commandes avec les boutons
-    if(pthread_create(&set_chaud_20, NULL, &set_consigne_pourc, &chaud_20)) {
-        printf("Unable to start thread to set uH at 20%%\n");
-        status = EXIT_FAILURE;
-        goto chaud_20_fail;
-    }
-    
-    if(pthread_create(&set_froid_20, NULL, &set_consigne_pourc, &froid_20)) {
-        printf("Unable to start thread to set uC at 20%%\n");
-        status = EXIT_FAILURE;
-        goto froid_20_fail;
-    }
-    
-    if(pthread_create(&set_chaud_60, NULL, &set_consigne_pourc, &chaud_60)) {
-        printf("Unable to start thread to set uH at 60%%\n");
-        status = EXIT_FAILURE;
-        goto chaud_60_fail;
-    }
-    
-    if(pthread_create(&set_froid_60, NULL, &set_consigne_pourc, &froid_60)) {
-        printf("Unable to start thread to set uC at 60%%\n");
-        status = EXIT_FAILURE;
-        goto froid_60_fail;
-    }
     
     // Création et lancement du thread pour la sumulation
     if(pthread_create(&thread_simulation, NULL, &simulation_Reservoir, &struct_simulation)) {
@@ -840,18 +803,6 @@ int main(int args, char *argv[])
     pthread_cancel(thread_simulation);
     pthread_join(thread_simulation, NULL);
 simu_start_fail:
-    pthread_cancel(set_froid_60);
-    pthread_join(set_froid_60, NULL);
-froid_60_fail:
-    pthread_cancel(set_chaud_60);
-    pthread_join(set_chaud_60, NULL);
-chaud_60_fail:
-    pthread_cancel(set_froid_20);
-    pthread_join(set_froid_20, NULL);
-froid_20_fail:
-    pthread_cancel(set_chaud_20);
-    pthread_join(set_chaud_20, NULL);
-chaud_20_fail:
 
     // Libérer le GPIO
     bcm2835_close();
