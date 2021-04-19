@@ -143,8 +143,8 @@ int mcp9808_init(double temp_upper, double temp_lower, double temp_crit, enum mc
     payload[0] = 0b00000010;
     convertion_temp_to_bits(temp_upper, &(payload[1]));
 
-    printf("Valeurs à pousser pour temp upper\n");
-    printf("%02X%02X\n", payload[1], payload[2]);
+    //printf("Valeurs à pousser pour temp upper\n");
+    //printf("%02X%02X\n", payload[1], payload[2]);
 
     // Pousser les nouvelles valeurs sur le MCP9808
     if((status = bcm2835_i2c_write(payload, 3)))
@@ -154,27 +154,27 @@ int mcp9808_init(double temp_upper, double temp_lower, double temp_crit, enum mc
     }
 
     // Pousser les nouvelles valeurs sur le MCP9808
-    if((status = bcm2835_i2c_write(payload, 1)))
-    {
-        printf("Fail to sent data because %d\n", status);
-        return status;
-    }
+    //if((status = bcm2835_i2c_write(payload, 1)))
+    //{
+    //    printf("Fail to sent data because %d\n", status);
+    //    return status;
+    //}
 
-    if((status = bcm2835_i2c_read(&(payload[1]), 2)))
-    {
-        printf("Fail to read data because %d\n", status);
-        return status;
-    }
+    //if((status = bcm2835_i2c_read(&(payload[1]), 2)))
+    //{
+    //    printf("Fail to read data because %d\n", status);
+    //    return status;
+    //}
     
-    printf("%02X", payload[1]);
-    printf("%02X\n", payload[2]);
+    //printf("Valeurs du registre temp upper\n");
+    //printf("%02X%02X\n\n", payload[1], payload[2]);
 
-    // Charger le payload avec la température critique
+    // Charger le payload avec la température limite inférieure
     payload[0] = 0b00000011;
     convertion_temp_to_bits(temp_lower, &(payload[1]));
 
-    printf("Valeurs à pousser pour temp lower\n");
-    printf("%02X%02X\n", payload[1], payload[2]);
+    //printf("Valeurs à pousser pour temp lower\n");
+    //printf("%02X%02X\n", payload[1], payload[2]);
 
     // Pousser les nouvelles valeurs sur le MCP9808
     if((status = bcm2835_i2c_write(payload, 3)))
@@ -184,25 +184,28 @@ int mcp9808_init(double temp_upper, double temp_lower, double temp_crit, enum mc
     }
 
     // Pousser les nouvelles valeurs sur le MCP9808
-    if((status = bcm2835_i2c_write(payload, 1)))
-    {
-        printf("Fail to sent data because %d\n", status);
-        return status;
-    }
+    //if((status = bcm2835_i2c_write(payload, 1)))
+    //{
+    //    printf("Fail to sent data because %d\n", status);
+    //    return status;
+    //}
 
-    if((status = bcm2835_i2c_read(&(payload[1]), 2)))
-    {
-        printf("Fail to read data because %d\n", status);
-        return status;
-    }
+    //if((status = bcm2835_i2c_read(&(payload[1]), 2)))
+    //{
+    //    printf("Fail to read data because %d\n", status);
+    //    return status;
+    //}
     
-    printf("%02X", payload[1]);
-    printf("%02X\n", payload[2]);
+    //printf("Valeurs du registre temp lower\n");
+    //printf("%02X%02X\n\n", payload[1], payload[2]);
 
     // Charger le payload avec la température critique
     payload[0] = 0b00000100;
     convertion_temp_to_bits(temp_crit, &(payload[1]));
 
+    //printf("Valeurs à pousser pour temp crit\n");
+    //printf("%02X%02X\n", payload[1], payload[2]);
+
     // Pousser les nouvelles valeurs sur le MCP9808
     if((status = bcm2835_i2c_write(payload, 3)))
     {
@@ -211,26 +214,59 @@ int mcp9808_init(double temp_upper, double temp_lower, double temp_crit, enum mc
     }
 
     // Pousser les nouvelles valeurs sur le MCP9808
-    if((status = bcm2835_i2c_write(payload, 1)))
+    //if((status = bcm2835_i2c_write(payload, 1)))
+    //{
+    //    printf("Fail to sent data because %d\n", status);
+    //    return status;
+    //}
+
+    //if((status = bcm2835_i2c_read(&(payload[1]), 2)))
+    //{
+    //    printf("Fail to read data because %d\n", status);
+    //    return status;
+    //}
+    
+    //printf("Valeurs du registre temp crit\n");
+    //printf("%02X%02X\n\n", payload[1], payload[2]);
+
+    // Charger le payload avec la résolution
+    payload[0] = 0b00001000;
+    payload[1] = resolution;
+
+    //printf("Valeurs à pousser pour résolution\n");
+    //printf("%02X\n", payload[1]);
+
+    // Pousser les nouvelles valeurs sur le MCP9808
+    if((status = bcm2835_i2c_write(payload, 2)))
     {
         printf("Fail to sent data because %d\n", status);
         return status;
     }
 
-    if((status = bcm2835_i2c_read(&(payload[1]), 2)))
-    {
-        printf("Fail to read data because %d\n", status);
-        return status;
-    }
-    
-    printf("%02X", payload[1]);
-    printf("%02X\n", payload[2]);
+    // Pousser les nouvelles valeurs sur le MCP9808
+    //if((status = bcm2835_i2c_write(payload, 1)))
+    //{
+    //    printf("Fail to sent data because %d\n", status);
+    //    return status;
+    //}
 
-    // Assigner les nouvelles valeurs du registre de configuration
+    //if((status = bcm2835_i2c_read(&(payload[1]), 2)))
+    //{
+    //    printf("Fail to read data because %d\n", status);
+    //    return status;
+    //}
+    
+    //printf("Valeurs du registre résolution\n");
+    //printf("%02X\n\n", payload[1]);
+
+    // Charger le payload avec les configuration
     payload[0] = 0b00000001;
     payload[1] = (hysteresis << 1) | power_state;
     payload[2] = (crit_lock << 7) | (win_lock << 6);
 
+    //printf("Valeurs à pousser pour configuration\n");
+    //printf("%02X%02X\n", payload[1], payload[2]);
+
     // Pousser les nouvelles valeurs sur le MCP9808
     if((status = bcm2835_i2c_write(payload, 3)))
     {
@@ -238,25 +274,21 @@ int mcp9808_init(double temp_upper, double temp_lower, double temp_crit, enum mc
         return status;
     }
 
-    printf("%02X", payload[0]);
-    printf("%02X", payload[1]);
-    printf("%02X\n", payload[2]);
-
     // Pousser les nouvelles valeurs sur le MCP9808
-    if((status = bcm2835_i2c_write(payload, 1)))
-    {
-        printf("Fail to sent data because %d\n", status);
-        return status;
-    }
+    //if((status = bcm2835_i2c_write(payload, 1)))
+    //{
+    //    printf("Fail to sent data because %d\n", status);
+    //    return status;
+    //}
 
-    if((status = bcm2835_i2c_read(&(payload[1]), 2)))
-    {
-        printf("Fail to read data because %d\n", status);
-        return status;
-    }
+    //if((status = bcm2835_i2c_read(&(payload[1]), 2)))
+    //{
+    //    printf("Fail to read data because %d\n", status);
+    //    return status;
+    //}
     
-    printf("%02X", payload[1]);
-    printf("%02X\n", payload[2]);
+    //printf("Valeurs du registre configuration\n");
+    //printf("%02X%02X\n\n", payload[1], payload[2]);
 
     return status;
 }
@@ -281,12 +313,12 @@ int main(int args, char* argv[])
         goto i2c_fail;
     }
 
-    bcm2835_i2c_set_baudrate(750000);
+    bcm2835_i2c_set_baudrate(100000);
 
     bcm2835_i2c_setSlaveAddress(0x18);
 
-    //mcp9808_init(40.0, -20, 75, MCP9808_RESOLUTION_0_125, MCP9808_HYSTERESIS_1_5, MCP9808_CONTINUOUS_CONVERSION,
-    //                MCP9808_CRIT_REG_UNLOCKED, MCP9808_WIN_REG_UNLOCKED);
+    mcp9808_init(40.0, -20, 75, MCP9808_RESOLUTION_0_125, MCP9808_HYSTERESIS_1_5, MCP9808_CONTINUOUS_CONVERSION,
+                    MCP9808_CRIT_REG_UNLOCKED, MCP9808_WIN_REG_UNLOCKED);
     
     bcm2835_i2c_end();
 
